@@ -1,0 +1,16 @@
+name: ok
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: nested
+    steps:
+      - name: Проверка
+        run: |
+          set -euo pipefail
+          echo "ok"

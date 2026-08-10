@@ -1,0 +1,21 @@
+extends: default
+
+ignore:
+  - .direnv/
+  - .git/
+  - .venv/
+  - build/
+  - dist/
+  - node_modules/
+  - result
+  - result-*
+  - target/
+
+rules:
+  comments:
+    min-spaces-from-content: 1
+  document-start: disable
+  line-length:
+    max: 120
+  truthy:
+    check-keys: false

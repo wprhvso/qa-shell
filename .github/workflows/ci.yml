@@ -1,0 +1,146 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  qa-nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: wprhvso/qa-nix@v1
+
+  self:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: ./
+        with:
+          shell-paths: scripts
+          yaml-paths: action.yml config .github
+
+  clean:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        checks: [all, shellcheck, shfmt, actionlint, yamllint, "shellcheck,shfmt"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: ./
+        with:
+          checks: ${{ matrix.checks }}
+          working-directory: fixtures/clean
+
+  dirty:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        checks: [shellcheck, shfmt, actionlint, yamllint]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - id: run
+        continue-on-error: true
+        uses: ./
+        with:
+          checks: ${{ matrix.checks }}
+          working-directory: fixtures/dirty
+
+      - name: Проверка, что экшен упал
+        env:
+          OUTCOME: ${{ steps.run.outcome }}
+          CHECK: ${{ matrix.checks }}
+        run: |
+          set -euo pipefail
+          if [[ $OUTCOME != failure ]]; then
+            echo "::error::проверка '$CHECK' прошла на грязном проекте (outcome=$OUTCOME)"
+            exit 1
+          fi
+          echo "ok: '$CHECK' упала, как и ожидалось"
+
+  paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Грязный файл вне указанных путей
+        run: cp fixtures/dirty/dirty.sh fixtures/clean/skipped.sh
+
+      - uses: ./
+        with:
+          checks: shellcheck,shfmt
+          working-directory: fixtures/clean
+          shell-paths: clean.sh
+
+  stray-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Подкладываем локальный конфиг
+        run: echo 'disable=SC2086' > fixtures/clean/.shellcheckrc
+
+      - id: run
+        continue-on-error: true
+        uses: ./
+        with:
+          checks: shellcheck
+          config-mode: check
+          working-directory: fixtures/clean
+
+      - name: Проверка, что экшен упал
+        env:
+          OUTCOME: ${{ steps.run.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ $OUTCOME != failure ]]; then
+            echo "::error::config-mode=check не заметил .shellcheckrc (outcome=$OUTCOME)"
+            exit 1
+          fi
+          echo "ok: локальный конфиг обнаружен"
+
+  unknown-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - id: run
+        continue-on-error: true
+        uses: ./
+        with:
+          checks: shellchek
+          setup-uv: "false"
+
+      - name: Проверка, что экшен упал
+        env:
+          OUTCOME: ${{ steps.run.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ $OUTCOME != failure ]]; then
+            echo "::error::неизвестное имя проверки прошло (outcome=$OUTCOME)"
+            exit 1
+          fi
+          echo "ok: неизвестная проверка отвергнута"

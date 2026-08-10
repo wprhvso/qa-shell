@@ -1,0 +1,10 @@
+/.shellcheckrc
+/.yamllint
+/.github/actionlint.yaml
+fixtures/*/.shellcheckrc
+fixtures/*/.yamllint
+fixtures/*/.github/actionlint.yaml
+
+result
+result-*
+.direnv/

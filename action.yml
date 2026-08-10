@@ -1,0 +1,253 @@
+name: "qa-shell"
+description: "Единый QA для shell и YAML: shellcheck, shfmt, actionlint и yamllint с общими настройками."
+author: "wprhvso"
+
+branding:
+  icon: "check-circle"
+  color: "green"
+
+inputs:
+  checks:
+    description: >-
+      Что запускать: all либо список через запятую из shellcheck, shfmt,
+      actionlint, yamllint.
+    required: false
+    default: "all"
+
+  working-directory:
+    description: "Каталог проекта относительно корня рабочей копии."
+    required: false
+    default: "."
+
+  config-mode:
+    description: >-
+      enforce — общие конфиги перекрывают локальные, о найденных локальных пишем warning;
+      check — то же плюс падение job, если в репозитории остались свои настройки;
+      off — общие конфиги не устанавливаются.
+    required: false
+    default: "enforce"
+
+  setup-uv:
+    description: "Ставить uv самому экшену (astral-sh/setup-uv), нужен для yamllint."
+    required: false
+    default: "true"
+
+  shellcheck-version:
+    description: "Версия shellcheck."
+    required: false
+    default: "v0.11.0"
+
+  shfmt-version:
+    description: "Версия shfmt (mvdan/sh)."
+    required: false
+    default: "v3.13.1"
+
+  actionlint-version:
+    description: "Версия actionlint."
+    required: false
+    default: "v1.7.12"
+
+  yamllint-version:
+    description: "Версия yamllint для uvx."
+    required: false
+    default: "1.38.0"
+
+  shell-paths:
+    description: >-
+      Файлы и каталоги через пробел, которые проверяют shellcheck и shfmt.
+      Пусто — автопоиск по git ls-files и shebang.
+    required: false
+    default: ""
+
+  yaml-paths:
+    description: "Пути через пробел, которые проверяет yamllint."
+    required: false
+    default: "."
+
+  shellcheck-args:
+    description: "Дополнительные аргументы shellcheck."
+    required: false
+    default: ""
+
+  shfmt-args:
+    description: "Дополнительные аргументы shfmt."
+    required: false
+    default: ""
+
+  actionlint-args:
+    description: "Дополнительные аргументы actionlint."
+    required: false
+    default: ""
+
+  yamllint-args:
+    description: "Дополнительные аргументы yamllint."
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Разбор списка проверок
+      id: plan
+      shell: bash
+      env:
+        QA_CHECKS: ${{ inputs.checks }}
+      run: |
+        set -euo pipefail
+        normalized=$(echo "$QA_CHECKS" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+        if [[ $normalized == all ]]; then
+          normalized="shellcheck,shfmt,actionlint,yamllint"
+        fi
+        if [[ -z $normalized ]]; then
+          echo "::error::пустой список проверок; допустимы: all, shellcheck, shfmt, actionlint, yamllint"
+          exit 2
+        fi
+        IFS=',' read -r -a names <<<"$normalized"
+        tools=()
+        for name in "${names[@]}"; do
+          case "$name" in
+            shellcheck | shfmt | actionlint) tools+=("$name") ;;
+            yamllint) ;;
+            *)
+              echo "::error::неизвестная проверка '$name'; допустимы: all, shellcheck, shfmt, actionlint, yamllint"
+              exit 2
+              ;;
+          esac
+        done
+        {
+          echo "selected=,${normalized},"
+          echo "tools=${tools[*]:-}"
+        } >>"$GITHUB_OUTPUT"
+        echo "Проверки: ${names[*]}"
+
+    - name: Общие конфиги QA
+      if: inputs.config-mode != 'off'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        QA_ACTION_PATH: ${{ github.action_path }}
+        QA_CONFIG_MODE: ${{ inputs.config-mode }}
+      run: bash "$QA_ACTION_PATH/scripts/install-config.sh"
+
+    - name: Установка shellcheck, shfmt и actionlint
+      if: steps.plan.outputs.tools != ''
+      shell: bash
+      env:
+        QA_ACTION_PATH: ${{ github.action_path }}
+        QA_BIN: ${{ runner.temp }}/qa-shell-bin
+        QA_TOOLS: ${{ steps.plan.outputs.tools }}
+        QA_SHELLCHECK_VERSION: ${{ inputs.shellcheck-version }}
+        QA_SHFMT_VERSION: ${{ inputs.shfmt-version }}
+        QA_ACTIONLINT_VERSION: ${{ inputs.actionlint-version }}
+      run: bash "$QA_ACTION_PATH/scripts/install-tools.sh"
+
+    - name: Установка uv
+      if: >-
+        inputs.setup-uv == 'true' &&
+        contains(steps.plan.outputs.selected, ',yamllint,')
+      uses: astral-sh/setup-uv@v9.0.0
+
+    - name: Поиск shell-файлов
+      if: >-
+        contains(steps.plan.outputs.selected, ',shellcheck,') ||
+        contains(steps.plan.outputs.selected, ',shfmt,')
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        QA_ACTION_PATH: ${{ github.action_path }}
+        QA_SHELL_PATHS: ${{ inputs.shell-paths }}
+        QA_FILE_LIST: ${{ runner.temp }}/qa-shell-files.txt
+      run: |
+        set -euo pipefail
+        bash "$QA_ACTION_PATH/scripts/list-shell-files.sh" >"$QA_FILE_LIST"
+        echo "Shell-файлов: $(wc -l <"$QA_FILE_LIST")"
+        cat "$QA_FILE_LIST"
+
+    - name: shellcheck
+      if: contains(steps.plan.outputs.selected, ',shellcheck,')
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        QA_SHELLCHECK_ARGS: ${{ inputs.shellcheck-args }}
+        QA_FILE_LIST: ${{ runner.temp }}/qa-shell-files.txt
+      run: |
+        set -euo pipefail
+        if [[ ! -s $QA_FILE_LIST ]]; then
+          echo "shell-файлов нет — пропускаю"
+          exit 0
+        fi
+        mapfile -t files <"$QA_FILE_LIST"
+        read -r -a args <<<"$QA_SHELLCHECK_ARGS" || true
+        printf '+ shellcheck %s (файлов: %d)\n' "$QA_SHELLCHECK_ARGS" "${#files[@]}"
+        shellcheck "${args[@]}" -- "${files[@]}"
+
+    - name: shfmt
+      if: contains(steps.plan.outputs.selected, ',shfmt,')
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        QA_ACTION_PATH: ${{ github.action_path }}
+        QA_SHFMT_ARGS: ${{ inputs.shfmt-args }}
+        QA_FILE_LIST: ${{ runner.temp }}/qa-shell-files.txt
+      run: |
+        set -euo pipefail
+        if [[ ! -s $QA_FILE_LIST ]]; then
+          echo "shell-файлов нет — пропускаю"
+          exit 0
+        fi
+        mapfile -t files <"$QA_FILE_LIST"
+        args_file="$QA_ACTION_PATH/config/shfmt.args"
+        read -r -a flags <<<"$(grep -vE '^[[:space:]]*(#|$)' "$args_file" | tr '\n' ' ')" || true
+        read -r -a args <<<"$QA_SHFMT_ARGS" || true
+        printf '+ shfmt %s --diff %s (файлов: %d)\n' "${flags[*]}" "$QA_SHFMT_ARGS" "${#files[@]}"
+        shfmt "${flags[@]}" --diff "${args[@]}" -- "${files[@]}"
+
+    - name: actionlint
+      if: contains(steps.plan.outputs.selected, ',actionlint,')
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        QA_ACTIONLINT_ARGS: ${{ inputs.actionlint-args }}
+      run: |
+        set -euo pipefail
+        if [[ ! -d .github/workflows ]]; then
+          echo "каталога .github/workflows нет — пропускаю"
+          exit 0
+        fi
+        mapfile -t workflows < <(
+          find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort
+        )
+        if ((${#workflows[@]} == 0)); then
+          echo "workflow'ов нет — пропускаю"
+          exit 0
+        fi
+        cmd=(actionlint -color)
+        if [[ -f .github/actionlint.yaml ]]; then
+          cmd+=(-config-file .github/actionlint.yaml)
+        fi
+        read -r -a args <<<"$QA_ACTIONLINT_ARGS" || true
+        cmd+=("${args[@]}" "${workflows[@]}")
+        printf '+ %s\n' "${cmd[*]}"
+        "${cmd[@]}"
+
+    - name: yamllint
+      if: contains(steps.plan.outputs.selected, ',yamllint,')
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        QA_YAMLLINT_VERSION: ${{ inputs.yamllint-version }}
+        QA_YAMLLINT_ARGS: ${{ inputs.yamllint-args }}
+        QA_YAML_PATHS: ${{ inputs.yaml-paths }}
+      run: |
+        set -euo pipefail
+        read -r -a paths <<<"$QA_YAML_PATHS" || true
+        ((${#paths[@]} > 0)) || paths=(.)
+        cmd=(uvx "yamllint@${QA_YAMLLINT_VERSION}" --strict)
+        if [[ -f .yamllint ]]; then
+          cmd+=(-c .yamllint)
+        fi
+        read -r -a args <<<"$QA_YAMLLINT_ARGS" || true
+        cmd+=("${args[@]}" -- "${paths[@]}")
+        printf '+ %s\n' "${cmd[*]}"
+        "${cmd[@]}"

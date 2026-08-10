@@ -1,0 +1,6 @@
+service:
+  name: qa-shell
+  port: 8080
+  tags:
+    - shell
+    - yaml

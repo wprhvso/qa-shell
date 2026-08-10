@@ -1,0 +1,10 @@
+name: bad
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: nsted
+    steps:
+      - run: echo "${{ github.event.repository.nme }}"

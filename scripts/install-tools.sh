@@ -58,23 +58,57 @@ install_actionlint() {
     install -m 0755 "$work/actionlint" "$bin/actionlint"
 }
 
+wanted_version() {
+    case "$1" in
+        shellcheck) echo "${QA_SHELLCHECK_VERSION:-}" ;;
+        shfmt) echo "${QA_SHFMT_VERSION:-}" ;;
+        actionlint) echo "${QA_ACTIONLINT_VERSION:-}" ;;
+    esac
+}
+
+current_version() {
+    case "$1" in
+        shellcheck) shellcheck --version | sed -n 's/^version: *//p' ;;
+        shfmt) shfmt --version | head -n 1 ;;
+        actionlint) actionlint --version | head -n 1 ;;
+    esac
+}
+
+# инструмент уже на PATH и его версия совпадает с закреплённой
+already_installed() {
+    local tool=$1 want current
+    command -v "$tool" >/dev/null || return 1
+    want=$(wanted_version "$tool")
+    want=${want#v}
+    current=$(current_version "$tool" 2>/dev/null || true)
+    current=${current#v}
+    [[ -n $want && $current == "$want" ]] || return 1
+    echo "$tool v$want уже установлен — пропускаю"
+}
+
 tools=()
 read -r -a tools <<<"${QA_TOOLS:-}" || true
 
+installed=()
+
 for tool in "${tools[@]}"; do
     case "$tool" in
-        shellcheck) install_shellcheck ;;
-        shfmt) install_shfmt ;;
-        actionlint) install_actionlint ;;
+        shellcheck | shfmt | actionlint) ;;
         *)
             echo "::error::qa-shell не умеет ставить $tool"
             exit 2
             ;;
     esac
+    if already_installed "$tool"; then
+        continue
+    fi
+    "install_$tool"
+    installed+=("$tool")
 done
 
-echo "$bin" >>"${GITHUB_PATH:-/dev/null}"
-
-for tool in "${tools[@]}"; do
-    "$bin/$tool" --version | head -n 2
-done
+if ((${#installed[@]} > 0)); then
+    echo "$bin" >>"${GITHUB_PATH:-/dev/null}"
+    for tool in "${installed[@]}"; do
+        "$bin/$tool" --version | head -n 2
+    done
+fi

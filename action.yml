@@ -142,10 +142,23 @@ runs:
         QA_ACTIONLINT_VERSION: ${{ inputs.actionlint-version }}
       run: bash "$QA_ACTION_PATH/scripts/install-tools.sh"
 
+    - name: Проверка окружения
+      id: have
+      shell: bash
+      run: |
+        set -euo pipefail
+        if command -v uv >/dev/null; then
+          echo "uv=yes" >>"$GITHUB_OUTPUT"
+          echo "uv уже установлен — пропускаю"
+        else
+          echo "uv=no" >>"$GITHUB_OUTPUT"
+        fi
+
     - name: Установка uv
       if: >-
         inputs.setup-uv == 'true' &&
-        contains(steps.plan.outputs.selected, ',yamllint,')
+        contains(steps.plan.outputs.selected, ',yamllint,') &&
+        steps.have.outputs.uv != 'yes'
       uses: astral-sh/setup-uv@v9.0.0
 
     - name: Поиск shell-файлов

@@ -9,7 +9,7 @@ permissions: {}
 
 jobs:
   qa-nix:
-    runs-on: ubuntu-latest
+    runs-on: pool
     steps:
       - uses: actions/checkout@v7
         with:
@@ -18,7 +18,7 @@ jobs:
       - uses: wprhvso/qa-nix@v1
 
   self:
-    runs-on: ubuntu-latest
+    runs-on: pool
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,7 +30,7 @@ jobs:
           yaml-paths: action.yml config .github
 
   clean:
-    runs-on: ubuntu-latest
+    runs-on: pool
     strategy:
       fail-fast: false
       matrix:
@@ -46,7 +46,7 @@ jobs:
           working-directory: fixtures/clean
 
   dirty:
-    runs-on: ubuntu-latest
+    runs-on: pool
     strategy:
       fail-fast: false
       matrix:
@@ -76,7 +76,7 @@ jobs:
           echo "ok: '$CHECK' упала, как и ожидалось"
 
   paths:
-    runs-on: ubuntu-latest
+    runs-on: pool
     steps:
       - uses: actions/checkout@v7
         with:
@@ -92,7 +92,7 @@ jobs:
           shell-paths: clean.sh
 
   stray-config:
-    runs-on: ubuntu-latest
+    runs-on: pool
     steps:
       - uses: actions/checkout@v7
         with:
@@ -121,7 +121,7 @@ jobs:
           echo "ok: локальный конфиг обнаружен"
 
   unknown-check:
-    runs-on: ubuntu-latest
+    runs-on: pool
     steps:
       - uses: actions/checkout@v7
         with:

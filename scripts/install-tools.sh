@@ -74,7 +74,6 @@ current_version() {
     esac
 }
 
-# инструмент уже на PATH и его версия совпадает с закреплённой
 already_installed() {
     local tool=$1 want current
     command -v "$tool" >/dev/null || return 1
